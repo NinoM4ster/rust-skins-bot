@@ -112,33 +112,47 @@ func fetchPage() error {
 		log.Fatal(err)
 	}
 
-	count := 0
+	// count := 0
 
-	fmt.Println("fetching latest 5 skins...")
+	var newSkins []Skin
 
 	doc.Find(".skin-block-2").EachWithBreak(func(i int, s *goquery.Selection) bool {
 
-		// For each item found, get the band and title
-		href, ok := s.Attr("href")
-		if ok {
-			fmt.Println(href)
+		skinName, _ := s.Attr("data-name")
+		new, _ := s.Attr("data-new")
+		isNew := false
+		if new == "NEW" {
+			isNew = true
 		}
+		pagePath, _ := s.Attr("href")
+		pagePath = strings.ReplaceAll(pagePath, "//rustlabs.com/skin/", "")
+
+		// if ok {
+		// 	// fmt.Println(href)
+		// }
+
+		// fmt.Println(new + " - " + skinName + " - " + pagePath)
+		if isNew {
+			newSkins = append(newSkins, Skin{DisplayName: skinName, PagePath: pagePath})
+		}
+		// For each item found, get the band and title
 		// band := s.Find("a").Text()
 		// title := s.Find("i").Text()
 		// fmt.Printf("Review %d: %s - %s\n", i, band, title)
-		count++
-		if count == 5 {
-			return false
-		}
+		// count++
+		// if count == 10 {
+		// 	return false
+		// }
 		return true
 	})
-
+	fmt.Println("New skins:\n", newSkins)
 	// body, err := ioutil.ReadAll(resp.Body)
 	// if err != nil {
 	// 	return err
 	// }
 	return nil
 }
+
 func fetchSkin(path string) (Skin, error) {
 	resp, err := http.Get("https://rustlabs.com/skin/" + path)
 	if err != nil {
