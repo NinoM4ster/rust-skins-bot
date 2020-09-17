@@ -58,6 +58,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			sendMessage(senderID, err.Error())
 		}
+	case "/test":
+		sendPhoto(senderID, "https://rustlabs.com/img/skins/324/39304.png", "New skin released:\n[*No Mercy Kilt*](https://rustlabs.com/skin/no-mercy-kilt)")
 	default:
 		if strings.HasPrefix(msgText, "/fetchskin ") {
 			path := strings.Fields(msgText)
