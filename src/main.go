@@ -9,15 +9,44 @@ import (
 	"strconv"
 	"strings"
 
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
+
 	"github.com/PuerkitoBio/goquery"
 	"github.com/buger/jsonparser"
 )
 
 var (
-	debug bool
+	err         error
+	debug       bool
+	mongoClient *mongo.Client
 )
 
 func main() {
+	ctx, cancel := newCtx(10)
+	defer cancel()
+	fmt.Print("MongoDB: Connect ")
+	mongoClient, err = mongo.Connect(ctx, options.Client().ApplyURI(mongoAuth))
+	if err != nil {
+		fmt.Println()
+		log.Fatal(err)
+	}
+	fmt.Println("OK")
+	defer func() {
+		if err = mongoClient.Disconnect(ctx); err != nil {
+			panic(err)
+		}
+	}()
+	fmt.Print("MongoDB: Ping ")
+	err = mongoClient.Ping(ctx, readpref.Primary())
+	if err != nil {
+		fmt.Println()
+		log.Fatal(err)
+	}
+	fmt.Println("OK")
+
 	flag.BoolVar(&debug, "d", false, "Debug mode (mostly printing JSON body)")
 	flag.Parse()
 	http.HandleFunc("/rust-skins-bot", handler)
@@ -53,17 +82,19 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			sendMessage(senderID, err.Error())
 		}
-	case "/fetchskin":
-		err := fetchSkin("capitan's-ar")
-		if err != nil {
-			sendMessage(senderID, err.Error())
-		}
+	case "/skin":
+		sendMessage(senderID, "Please specify a skin code.\n(example: /fetchskin azul-hoodie)")
 	case "/test":
-		sendPhoto(senderID, "https://rustlabs.com/img/skins/324/39304.png", "New skin released:\n[*No Mercy Kilt*](https://rustlabs.com/skin/no-mercy-kilt)")
+		sendPhoto(senderID, "https://rustlabs.com/img/skins/324/39308.png", "New skin released:\n[*Azul Hoodie*](https://rustlabs.com/skin/azul-hoodie)")
 	default:
-		if strings.HasPrefix(msgText, "/fetchskin ") {
+		if strings.HasPrefix(msgText, "/skin ") {
 			path := strings.Fields(msgText)
-			fetchSkin(path[1])
+			skin, err := fetchSkin(path[1])
+			if err != nil {
+				sendMessage(senderID, "Skin not found!")
+				fmt.Println(err)
+			}
+			sendPhoto(senderID, skin.ImageURL, fmt.Sprintf("Skin name: *%v*\nSkin ID: [*%v*](%v)", skin.DisplayName, skin.WorkshopID, "https://rustlabs.com/skin/"+skin.PagePath))
 			return
 		}
 		sendMessage(senderID, "Unknown command!")
@@ -108,24 +139,33 @@ func fetchPage() error {
 	// }
 	return nil
 }
-func fetchSkin(path string) error {
+func fetchSkin(path string) (Skin, error) {
 	resp, err := http.Get("https://rustlabs.com/skin/" + path)
 	if err != nil {
-		return err
+		return Skin{}, err
 	}
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		log.Fatal(err)
 	}
-	skinID := doc.Find(".stats-table").Find("tr").Last().Children().Find("a").Text()
+	workshopID := doc.Find(".stats-table").Find("a").Text()
+	displayName := doc.Find(".text-column").Children().First().Text()
+	imageURL, _ := doc.Find(".icon-column").Find("img").Attr("src")
+	imageURL = "https:" + imageURL
+	itemPagePath, _ := doc.Find(".tab-block").Find("div").First().Find("a").Attr("href")
+	itemPagePath = strings.ReplaceAll(itemPagePath, "/item/", "")
+	item, err := getItemByPagePath(itemPagePath)
+	if err != nil {
+		fmt.Println(err)
+		return Skin{}, nil
+	}
+	return Skin{WorkshopID: workshopID, DisplayName: displayName, PagePath: path, ImageURL: imageURL, ItemName: item.ItemName}, nil
+}
 
-	fmt.Println("skin ID: " + skinID)
-	// doc.Find("tr").EachWithBreak(func(i int, s *goquery.Selection) bool {
-	// 	if s.Children().First().Text() == "Workshop ID" {
-	// 		fmt.Println("ID found: " + s.Children().Last().Text())
-	// 		return false
-	// 	}
-	// 	return true
-	// })
-	return nil
+func getItemByPagePath(pagePath string) (item Item, err error) {
+	items := mongoClient.Database("rust-skins").Collection("items")
+	ctx, cancel := newCtx(5)
+	defer cancel()
+	err = items.FindOne(ctx, bson.M{"page_path": pagePath}).Decode(&item)
+	return item, err
 }
