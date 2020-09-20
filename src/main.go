@@ -21,6 +21,7 @@ import (
 var (
 	err         error
 	debug       bool
+	running     bool
 	mongoClient *mongo.Client
 )
 
@@ -78,10 +79,16 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	case "/start":
 		sendMessage(senderID, "Work In Progress!")
 	case "/fetchall":
+		if running {
+			sendMessage(senderID, "Already running!")
+			return
+		}
+		w.WriteHeader(http.StatusOK)
 		err := fetchPage()
 		if err != nil {
 			sendMessage(senderID, err.Error())
 		}
+		return
 	case "/skin":
 		sendMessage(senderID, "Please specify a skin code.\n(example: /fetchskin azul-hoodie)")
 	case "/test":
@@ -94,7 +101,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				sendMessage(senderID, "Skin not found!")
 				fmt.Println(err)
 			}
-			sendPhoto(senderID, skin.ImageURL, fmt.Sprintf("Skin name: *%v*\nSkin ID: [*%v*](%v)", skin.DisplayName, skin.WorkshopID, "https://rustlabs.com/skin/"+skin.PagePath))
+			sendPhoto(senderID, skin.ImageURL, fmt.Sprintf("Skin name: *%v*\nSkin ID: [*%v*](%v)", skin.DisplayName, skin.WorkshopID, skin.PageURL))
 			return
 		}
 		sendMessage(senderID, "Unknown command!")
@@ -103,6 +110,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func fetchPage() error {
+	running = true
 	resp, err := http.Get("https://rustlabs.com/skins")
 	if err != nil {
 		return err
@@ -112,52 +120,73 @@ func fetchPage() error {
 		log.Fatal(err)
 	}
 
-	// count := 0
+	var count int = 1
 
-	var newSkins []Skin
-
+	var skins []Skin
+	fmt.Println("Fetching all skins...")
 	doc.Find(".skin-block-2").EachWithBreak(func(i int, s *goquery.Selection) bool {
 
-		skinName, _ := s.Attr("data-name")
-		new, _ := s.Attr("data-new")
-		isNew := false
-		if new == "NEW" {
-			isNew = true
-		}
-		pagePath, _ := s.Attr("href")
-		pagePath = strings.ReplaceAll(pagePath, "//rustlabs.com/skin/", "")
-
-		// if ok {
-		// 	// fmt.Println(href)
+		// skinName, _ := s.Attr("data-name")
+		// new, _ := s.Attr("data-new")
+		// isNew := false
+		// if new == "NEW" {
+		// 	isNew = true
 		// }
-
-		// fmt.Println(new + " - " + skinName + " - " + pagePath)
-		if isNew {
-			newSkins = append(newSkins, Skin{DisplayName: skinName, PagePath: pagePath})
+		// if isNew {
+		// 	newSkins = append(newSkins, Skin{DisplayName: skinName, PagePath: pagePath})
+		// }
+		href, _ := s.Attr("href")
+		skin, err := fetchSkin("https:" + href)
+		if err != nil {
+			fmt.Println(err)
+			return true
 		}
-		// For each item found, get the band and title
-		// band := s.Find("a").Text()
-		// title := s.Find("i").Text()
-		// fmt.Printf("Review %d: %s - %s\n", i, band, title)
-		// count++
+		if skin.DisplayName == "" || skin.WorkshopID == "" || skin.ItemName == "" {
+			fmt.Println("Skipping empty/invalid skin.")
+			return true
+		}
+		// skin.Num = count
+		skins = append(skins, skin)
+		fmt.Printf("Fetched skin %v/2261 '%v' (%v)\n", count, skin.DisplayName, skin.WorkshopID)
+		count++
 		// if count == 10 {
 		// 	return false
 		// }
 		return true
 	})
-	fmt.Println("New skins:\n", newSkins)
+
+	fmt.Println("Skins fetched. Reverse-Upserting them on the database...")
+
+	// var count int64 = 1
+
+	for i := range skins {
+		// fmt.Println(skins[len(skins)-1-i])
+		skin := skins[len(skins)-1-i]
+		skin.Num = i + 1
+		err = upsertSkin(skin)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Printf("Upserted skin %v/2261 '%v' (%v).\n", skin.Num, skin.DisplayName, skin.WorkshopID)
+	}
+
+	fmt.Println("Done!")
+
+	// fmt.Println("New skins:\n", newSkins)
 	// body, err := ioutil.ReadAll(resp.Body)
 	// if err != nil {
 	// 	return err
 	// }
+	running = false
 	return nil
 }
 
-func fetchSkin(path string) (Skin, error) {
-	resp, err := http.Get("https://rustlabs.com/skin/" + path)
+func fetchSkin(URL string) (Skin, error) {
+	resp, err := http.Get(URL)
 	if err != nil {
 		return Skin{}, err
 	}
+	defer resp.Body.Close()
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		log.Fatal(err)
@@ -170,10 +199,10 @@ func fetchSkin(path string) (Skin, error) {
 	itemPagePath = strings.ReplaceAll(itemPagePath, "/item/", "")
 	item, err := getItemByPagePath(itemPagePath)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Printf("%v (tried fetching item '%v')\n", err, itemPagePath)
 		return Skin{}, nil
 	}
-	return Skin{WorkshopID: workshopID, DisplayName: displayName, PagePath: path, ImageURL: imageURL, ItemName: item.ItemName}, nil
+	return Skin{WorkshopID: workshopID, DisplayName: displayName, PageURL: URL, ImageURL: imageURL, ItemName: item.ItemName}, nil
 }
 
 func getItemByPagePath(pagePath string) (item Item, err error) {
@@ -183,3 +212,12 @@ func getItemByPagePath(pagePath string) (item Item, err error) {
 	err = items.FindOne(ctx, bson.M{"page_path": pagePath}).Decode(&item)
 	return item, err
 }
+
+// func isInt(s string) bool {
+// 	for _, c := range s {
+// 		if !unicode.IsDigit(c) {
+// 			return false
+// 		}
+// 	}
+// 	return true
+// }

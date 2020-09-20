@@ -13,9 +13,10 @@ type Item struct {
 // Skin .
 type Skin struct {
 	ID          primitive.ObjectID `bson:"_id,omitempty"`
-	ItemName    string             `bson:"item_name,omitempty"`
+	Num         int                `bson:"num,omitempty"`
 	WorkshopID  string             `bson:"workshop_id,omitempty"`
 	DisplayName string             `bson:"display_name,omitempty"`
-	PagePath    string             `bson:"page_path,omitempty"`
+	PageURL     string             `bson:"page_url,omitempty"`
 	ImageURL    string             `bson:"image_url,omitempty"`
+	ItemName    string             `bson:"item_name,omitempty"`
 }
