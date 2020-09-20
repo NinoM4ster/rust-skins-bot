@@ -54,10 +54,15 @@ func main() {
 	if debug {
 		fmt.Printf("Debug mode enabled!\n")
 	}
-	fmt.Printf("Listening on port 1379.\n")
-	if err := http.ListenAndServe(":1379", nil); err != nil {
+
+	err := fetchPage()
+	if err != nil {
 		log.Fatal(err)
 	}
+	// fmt.Printf("Listening on port 1379.\n")
+	// if err := http.ListenAndServe(":1379", nil); err != nil {
+	// 	log.Fatal(err)
+	// }
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -127,14 +132,10 @@ func fetchPage() error {
 	doc.Find(".skin-block-2").EachWithBreak(func(i int, s *goquery.Selection) bool {
 
 		// skinName, _ := s.Attr("data-name")
-		// new, _ := s.Attr("data-new")
-		// isNew := false
-		// if new == "NEW" {
-		// 	isNew = true
-		// }
-		// if isNew {
-		// 	newSkins = append(newSkins, Skin{DisplayName: skinName, PagePath: pagePath})
-		// }
+		new, _ := s.Attr("data-new")
+		if new != "NEW" {
+			return true
+		}
 		href, _ := s.Attr("href")
 		skin, err := fetchSkin("https:" + href)
 		if err != nil {
