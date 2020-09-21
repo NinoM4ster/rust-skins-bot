@@ -54,15 +54,14 @@ func main() {
 	if debug {
 		fmt.Printf("Debug mode enabled!\n")
 	}
-
-	err := fetchPage()
+	fmt.Printf("Listening on port 1379.\n")
+	err = fetchPage()
 	if err != nil {
 		log.Fatal(err)
 	}
-	// fmt.Printf("Listening on port 1379.\n")
-	// if err := http.ListenAndServe(":1379", nil); err != nil {
-	// 	log.Fatal(err)
-	// }
+	if err := http.ListenAndServe(":1379", nil); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -125,16 +124,16 @@ func fetchPage() error {
 		log.Fatal(err)
 	}
 
-	var count int = 1
+	// var count int = 1
 
 	var skins []Skin
-	fmt.Println("Fetching all skins...")
+	fmt.Println("Fetching all new skins...")
 	doc.Find(".skin-block-2").EachWithBreak(func(i int, s *goquery.Selection) bool {
 
 		// skinName, _ := s.Attr("data-name")
 		new, _ := s.Attr("data-new")
 		if new != "NEW" {
-			return true
+			return false
 		}
 		href, _ := s.Attr("href")
 		skin, err := fetchSkin("https:" + href)
@@ -148,30 +147,58 @@ func fetchPage() error {
 		}
 		// skin.Num = count
 		skins = append(skins, skin)
-		fmt.Printf("Fetched skin %v/2261 '%v' (%v)\n", count, skin.DisplayName, skin.WorkshopID)
-		count++
+		// fmt.Printf("Fetched skin '%v' (%v). Already in database: %v\n", skin.DisplayName, skin.WorkshopID, exists)
+		// count++
 		// if count == 10 {
 		// 	return false
 		// }
 		return true
 	})
+	fmt.Printf("Found %v new skins. Checking them agains the database...\n", len(skins))
 
-	fmt.Println("Skins fetched. Reverse-Upserting them on the database...")
+	// fmt.Println("Skins fetched. Reverse-Upserting them on the database...")
 
 	// var count int64 = 1
 
+	var noticeSent bool = false
+
+	var existing, upserted, offset int
 	for i := range skins {
 		// fmt.Println(skins[len(skins)-1-i])
 		skin := skins[len(skins)-1-i]
-		skin.Num = i + 1
+
+		if skinExists(skin) {
+			existing++
+			continue
+		}
+
+		if offset == 0 {
+			lastNum, err := getLastNum()
+			if err != nil {
+				fmt.Println(err)
+				break
+			}
+			offset = lastNum
+		}
+
+		skin.Num = offset + 1
 		err = upsertSkin(skin)
 		if err != nil {
 			fmt.Println(err)
 		}
-		fmt.Printf("Upserted skin %v/2261 '%v' (%v).\n", skin.Num, skin.DisplayName, skin.WorkshopID)
+		if !noticeSent {
+			noticeSent = true
+			sendMessage("346635190", "New skins released!")
+		}
+		sendSkin("346635190", skin)
+		offset++
+		upserted++
+		// fmt.Printf("Upserted skin %v/2261 '%v' (%v).\n", skin.Num, skin.DisplayName, skin.WorkshopID)
 	}
 
-	fmt.Println("Done!")
+	fmt.Printf("Inserted %v skins and ignored %v which already existed.\n", upserted, existing)
+
+	// fmt.Println("Done!")
 
 	// fmt.Println("New skins:\n", newSkins)
 	// body, err := ioutil.ReadAll(resp.Body)
@@ -212,6 +239,13 @@ func getItemByPagePath(pagePath string) (item Item, err error) {
 	defer cancel()
 	err = items.FindOne(ctx, bson.M{"page_path": pagePath}).Decode(&item)
 	return item, err
+}
+
+func (skin Skin) isComplete() bool {
+	if skin.WorkshopID == "" || skin.PageURL == "" || skin.DisplayName == "" || skin.ItemName == "" || skin.ImageURL == "" || skin.Num == 0 {
+		return false
+	}
+	return true
 }
 
 // func isInt(s string) bool {

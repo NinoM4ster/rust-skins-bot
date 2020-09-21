@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 )
@@ -28,4 +30,11 @@ func sendPhoto(userID, fileURL, caption string) error {
 	}
 	_, err := http.Get(api + "/sendPhoto?" + params.Encode())
 	return err
+}
+
+func sendSkin(userID string, skin Skin) error {
+	if !skin.isComplete() {
+		return errors.New("skin has missing fields")
+	}
+	return sendPhoto(userID, skin.ImageURL, fmt.Sprintf("[*%v*](%v)", skin.DisplayName, skin.PageURL))
 }
