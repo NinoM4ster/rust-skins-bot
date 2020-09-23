@@ -224,20 +224,20 @@ func fetchSkin(URL string) (Skin, error) {
 	imageURL, _ := doc.Find(".icon-column").Find("img").Attr("src")
 	imageURL = "https:" + imageURL
 	itemPagePath, _ := doc.Find(".tab-block").Find("div").First().Find("a").Attr("href")
-	itemPagePath = strings.ReplaceAll(itemPagePath, "/item/", "")
-	item, err := getItemByPagePath(itemPagePath)
+	itemPageURL := "https://rustlabs.com/" + itemPagePath
+	item, err := getItemByPageURL(itemPageURL)
 	if err != nil {
-		fmt.Printf("%v (tried fetching item '%v')\n", err, itemPagePath)
+		fmt.Printf("%v (tried fetching item '%v')\n", err, itemPageURL)
 		return Skin{}, nil
 	}
 	return Skin{WorkshopID: workshopID, DisplayName: displayName, PageURL: URL, ImageURL: imageURL, ItemName: item.ItemName}, nil
 }
 
-func getItemByPagePath(pagePath string) (item Item, err error) {
+func getItemByPageURL(pageURL string) (item Item, err error) {
 	items := mongoClient.Database("rust-skins").Collection("items")
 	ctx, cancel := newCtx(5)
 	defer cancel()
-	err = items.FindOne(ctx, bson.M{"page_path": pagePath}).Decode(&item)
+	err = items.FindOne(ctx, bson.M{"page_url": pageURL}).Decode(&item)
 	return item, err
 }
 
