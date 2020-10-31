@@ -224,7 +224,7 @@ func fetchSkin(URL string) (Skin, error) {
 	imageURL, _ := doc.Find(".icon-column").Find("img").Attr("src")
 	imageURL = "https:" + imageURL
 	itemPagePath, _ := doc.Find(".tab-block").Find("div").First().Find("a").Attr("href")
-	itemPageURL := "https://rustlabs.com/" + itemPagePath
+	itemPageURL := "https://rustlabs.com" + itemPagePath
 	item, err := getItemByPageURL(itemPageURL)
 	if err != nil {
 		fmt.Printf("%v (tried fetching item '%v')\n", err, itemPageURL)
